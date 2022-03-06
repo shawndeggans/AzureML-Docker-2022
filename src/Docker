@@ -1,0 +1,53 @@
+FROM ubuntu
+
+ARG PYTHON_VERSION=3.7
+ARG CONDA_VERSION=4.8.3
+ARG AZUREML_SDK_VERSION=1.13.0
+ARG DEBIAN_FRONTEND=noninteractive
+
+USER root:root
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN apt-get update --fix-missing && \
+    apt-get upgrade -y && \
+    apt-get install -y bzip2 wget curl gcc && \
+    apt-get install -y fuse
+
+# Azure CLI
+RUN apt-get install -y apt-transport-https lsb-release gnupg
+RUN CLI_REPO="$(lsb_release -cs)" && \
+    curl -sL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.asc.gpg && \
+    echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ ${CLI_REPO} main" > /etc/apt/sources.list.d/azure-cli.list && \
+    apt-get update && \
+    apt-get install -y azure-cli
+
+# Clean OS installation files
+RUN apt-get clean -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Docker user
+RUN useradd --create-home dockeruser
+WORKDIR /home/dockeruser
+USER dockeruser
+
+# Miniconda
+ENV CONDA_PATH=/home/dockeruser/miniconda
+ENV PATH="${PATH}:${CONDA_PATH}/bin/"
+RUN wget -qO /home/dockeruser/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-py37_$CONDA_VERSION-Linux-x86_64.sh && \
+    bash /home/dockeruser/miniconda.sh -b -p $CONDA_PATH && \
+    rm /home/dockeruser/miniconda.sh
+RUN conda init bash
+
+# Essential Azure ML Service & dependencies from conda
+RUN conda install -qy conda=${CONDA_VERSION} python=${PYTHON_VERSION} && \
+    conda clean -aqy
+
+RUN pip install azureml-defaults==${AZUREML_SDK_VERSION} && \
+    pip install azureml-dataprep[pandas,fuse] && \
+    pip install inference-schema
+
+# Clean conda installation files
+RUN rm -rf $CONDA_PATH/pkgs && \
+    find $CONDA_PATH -type d -name __pycache__ -prune | xargs rm -rf
